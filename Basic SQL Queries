@@ -1,0 +1,127 @@
+-- create_tables.sql
+CREATE TABLE titles (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255),
+    genre VARCHAR(50),
+    release_year INT,
+    rating FLOAT
+);
+
+-- data_cleaning.sql
+COPY titles(title, genre, release_year, rating)
+FROM 'path_to_csv/titles.csv'
+DELIMITER ','
+CSV HEADER;
+
+-- Handle missing data
+DELETE FROM titles WHERE title IS NULL OR genre IS NULL;
+
+
+
+-- data_transformation.sql
+ALTER TABLE titles
+ADD COLUMN release_decade INT;
+
+UPDATE titles
+SET release_decade = (release_year / 10) * 10;
+
+
+
+-- All_queries.sql
+-- Top 10 highest-rated movies
+SELECT title, rating
+FROM titles
+ORDER BY rating DESC
+LIMIT 10;
+
+-- Average rating per genre
+SELECT genre, AVG(rating) AS avg_rating
+FROM titles
+GROUP BY genre;
+
+-- Movies released in the last decade
+SELECT title, release_year
+FROM titles
+WHERE release_year >= YEAR(CURDATE()) - 10;
+
+-- Genre with the most movies
+SELECT genre, COUNT(*) AS movie_count
+FROM titles
+GROUP BY genre
+ORDER BY movie_count DESC
+LIMIT 1;
+
+-- Distribution of movie ratings
+SELECT rating, COUNT(*) AS rating_count
+FROM titles
+GROUP BY rating;
+
+-- top_3_movies_by_genre.sql
+SELECT genre, title, rating
+FROM (
+    SELECT genre, title, rating,
+           ROW_NUMBER() OVER (PARTITION BY genre ORDER BY rating DESC) as rn
+    FROM titles
+) ranked
+WHERE rn <= 3;
+
+-- yearly_rating_trends.sql
+SELECT release_year, AVG(rating) AS avg_rating
+FROM titles
+GROUP BY release_year
+ORDER BY release_year;
+
+-- genres_highest_avg_rating.sql
+SELECT genre, AVG(rating) AS avg_rating
+FROM titles
+GROUP BY genre
+HAVING COUNT(*) >= 10
+ORDER BY avg_rating DESC;
+
+-- movies_above_avg_rating.sql
+WITH avg_rating AS (
+    SELECT AVG(rating) AS avg_rating
+    FROM titles
+)
+SELECT title, genre, rating
+FROM titles, avg_rating
+WHERE titles.rating > avg_rating.avg_rating;
+
+-- movies_per_decade.sql
+SELECT release_decade, COUNT(*) AS movie_count
+FROM titles
+GROUP BY release_decade
+ORDER BY release_decade;
+
+-- highest_rated_movies_by_year.sql
+SELECT release_year, title, rating
+FROM (
+    SELECT release_year, title, rating,
+           RANK() OVER (PARTITION BY release_year ORDER BY rating DESC) as rk
+    FROM titles
+) ranked
+WHERE rk = 1;
+
+-- rating_distribution_by_genre.sql
+SELECT genre, rating, COUNT(*) AS rating_count
+FROM titles
+GROUP BY genre, rating
+ORDER BY genre, rating;
+
+-- avg_rating_change_over_decades.sql
+WITH decade_avg_ratings AS (
+    SELECT release_decade, AVG(rating) AS avg_rating
+    FROM titles
+    GROUP BY release_decade
+)
+SELECT release_decade,
+       avg_rating,
+       LAG(avg_rating) OVER (ORDER BY release_decade) AS prev_avg_rating,
+       (avg_rating - LAG(avg_rating) OVER (ORDER BY release_decade)) AS change_in_avg_rating
+FROM decade_avg_ratings;
+
+-- genres_with_most_variability.sql
+SELECT genre, STDDEV(rating) AS rating_stddev
+FROM titles
+GROUP BY genre
+ORDER BY rating_stddev DESC;
