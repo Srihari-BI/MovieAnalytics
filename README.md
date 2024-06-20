@@ -1,4 +1,4 @@
-# Netflix_data_analysis
+# Movie_data_analysis
 Project Overview
 Title: Analysis of Movie Titles Database
 
