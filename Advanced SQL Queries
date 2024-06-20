@@ -1,0 +1,259 @@
+-- movie_rating_percentiles.sql
+WITH percentiles AS (
+    SELECT rating,
+           NTILE(4) OVER (ORDER BY rating) AS quartile
+    FROM titles
+)
+SELECT
+    MIN(rating) FILTER (WHERE quartile = 1) AS "0-25%",
+    MAX(rating) FILTER (WHERE quartile = 1) AS "25%",
+    MIN(rating) FILTER (WHERE quartile = 2) AS "25-50%",
+    MAX(rating) FILTER (WHERE quartile = 2) AS "50%",
+    MIN(rating) FILTER (WHERE quartile = 3) AS "50-75%",
+    MAX(rating) FILTER (WHERE quartile = 3) AS "75%",
+    MIN(rating) FILTER (WHERE quartile = 4) AS "75-100%",
+    MAX(rating) FILTER (WHERE quartile = 4) AS "100%"
+FROM percentiles;
+
+-- genre_analysis.sql
+WITH genre_stats AS (
+    SELECT
+        genre,
+        COUNT(*) AS movie_count,
+        AVG(rating) AS avg_rating,
+        MIN(rating) AS min_rating,
+        MAX(rating) AS max_rating,
+        STDDEV(rating) AS rating_stddev
+    FROM titles
+    GROUP BY genre
+),
+genre_top_movies AS (
+    SELECT
+        genre,
+        title AS top_movie,
+        rating AS top_movie_rating
+    FROM (
+        SELECT
+            genre,
+            title,
+            rating,
+            ROW_NUMBER() OVER (PARTITION BY genre ORDER BY rating DESC) AS rn
+        FROM titles
+    ) ranked
+    WHERE rn = 1
+),
+rating_distribution AS (
+    SELECT
+        genre,
+        rating,
+        COUNT(*) AS rating_count
+    FROM titles
+    GROUP BY genre, rating
+    ORDER BY genre, rating
+)
+SELECT
+    gs.genre,
+    gs.movie_count,
+    gs.avg_rating,
+    gs.min_rating,
+    gs.max_rating,
+    gs.rating_stddev,
+    gtm.top_movie,
+    gtm.top_movie_rating,
+    rd.rating,
+    rd.rating_count
+FROM genre_stats gs
+JOIN genre_top_movies gtm ON gs.genre = gtm.genre
+JOIN rating_distribution rd ON gs.genre = rd.genre
+ORDER BY gs.genre, rd.rating;
+
+
+-- yearly_trends_and_decade_analysis.sql
+WITH yearly_stats AS (
+    SELECT
+        release_year,
+        COUNT(*) AS movie_count,
+        AVG(rating) AS avg_rating,
+        MIN(rating) AS min_rating,
+        MAX(rating) AS max_rating,
+        STDDEV(rating) AS rating_stddev
+    FROM titles
+    GROUP BY release_year
+    ORDER BY release_year
+),
+decade_stats AS (
+    SELECT
+        (release_year / 10) * 10 AS release_decade,
+        COUNT(*) AS movie_count,
+        AVG(rating) AS avg_rating,
+        MIN(rating) AS min_rating,
+        MAX(rating) AS max_rating,
+        STDDEV(rating) AS rating_stddev
+    FROM titles
+    GROUP BY release_decade
+    ORDER BY release_decade
+),
+yearly_ranking AS (
+    SELECT
+        release_year,
+        title,
+        rating,
+        RANK() OVER (PARTITION BY release_year ORDER BY rating DESC) AS rn
+    FROM titles
+),
+top_movies_per_year AS (
+    SELECT
+        release_year,
+        title AS top_movie,
+        rating AS top_movie_rating
+    FROM yearly_ranking
+    WHERE rn = 1
+)
+SELECT
+    ys.release_year,
+    ys.movie_count AS yearly_movie_count,
+    ys.avg_rating AS yearly_avg_rating,
+    ys.min_rating AS yearly_min_rating,
+    ys.max_rating AS yearly_max_rating,
+    ys.rating_stddev AS yearly_rating_stddev,
+    ds.release_decade,
+    ds.movie_count AS decade_movie_count,
+    ds.avg_rating AS decade_avg_rating,
+    ds.min_rating AS decade_min_rating,
+    ds.max_rating AS decade_max_rating,
+    ds.rating_stddev AS decade_rating_stddev,
+    tpy.top_movie,
+    tpy.top_movie_rating
+FROM yearly_stats ys
+JOIN decade_stats ds ON (ys.release_year / 10) * 10 = ds.release_decade
+JOIN top_movies_per_year tpy ON ys.release_year = tpy.release_year
+ORDER BY ys.release_year;
+
+-- detailed_rating_analysis_by_genre_and_year.sql
+WITH genre_yearly_stats AS (
+    SELECT
+        genre,
+        release_year,
+        COUNT(*) AS movie_count,
+        AVG(rating) AS avg_rating,
+        MIN(rating) AS min_rating,
+        MAX(rating) AS max_rating,
+        STDDEV(rating) AS rating_stddev
+    FROM titles
+    GROUP BY genre, release_year
+),
+genre_yearly_ranking AS (
+    SELECT
+        genre,
+        release_year,
+        title,
+        rating,
+        RANK() OVER (PARTITION BY genre, release_year ORDER BY rating DESC) AS rn
+    FROM titles
+),
+top_movies_per_genre_year AS (
+    SELECT
+        genre,
+        release_year,
+        title AS top_movie,
+        rating AS top_movie_rating
+    FROM genre_yearly_ranking
+    WHERE rn = 1
+)
+SELECT
+    gys.genre,
+    gys.release_year,
+    gys.movie_count,
+    gys.avg_rating,
+    gys.min_rating,
+    gys.max_rating,
+    gys.rating_stddev,
+    tpg.top_movie,
+    tpg.top_movie_rating
+FROM genre_yearly_stats gys
+JOIN top_movies_per_genre_year tpg ON gys.genre = tpg.genre AND gys.release_year = tpg.release_year
+ORDER BY gys.genre, gys.release_year;
+
+-- rating_percentiles_distribution.sql
+WITH rating_percentiles AS (
+    SELECT
+        rating,
+        NTILE(100) OVER (ORDER BY rating) AS percentile
+    FROM titles
+),
+rating_distribution AS (
+    SELECT
+        rating,
+        COUNT(*) AS rating_count
+    FROM titles
+    GROUP BY rating
+    ORDER BY rating
+),
+percentile_summary AS (
+    SELECT
+        MIN(rating) AS min_rating,
+        MAX(rating) AS max_rating,
+        AVG(rating) AS avg_rating,
+        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY rating) AS percentile_25,
+        PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY rating) AS percentile_50,
+        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY rating) AS percentile_75
+    FROM rating_percentiles
+)
+SELECT
+    ps.min_rating,
+    ps.max_rating,
+    ps.avg_rating,
+    ps.percentile_25,
+    ps.percentile_50,
+    ps.percentile_75,
+    rd.rating,
+    rd.rating_count
+FROM percentile_summary ps, rating_distribution rd
+ORDER BY rd.rating;
+
+-- advanced_movie_analysis.sql
+WITH top_movies_by_decade AS (
+    SELECT
+        (release_year / 10) * 10 AS release_decade,
+        title,
+        rating,
+        RANK() OVER (PARTITION BY (release_year / 10) * 10 ORDER BY rating DESC) AS rn
+    FROM titles
+),
+genre_movie_count AS (
+    SELECT
+        genre,
+        COUNT(*) AS movie_count
+    FROM titles
+    GROUP BY genre
+),
+avg_rating_by_decade AS (
+    SELECT
+        (release_year / 10) * 10 AS release_decade,
+        AVG(rating) AS avg_rating
+    FROM titles
+    GROUP BY release_decade
+),
+rating_change_over_time AS (
+    SELECT
+        release_decade,
+        avg_rating,
+        LAG(avg_rating) OVER (ORDER BY release_decade) AS prev_avg_rating,
+        (avg_rating - LAG(avg_rating) OVER (ORDER BY release_decade)) AS change_in_avg_rating
+    FROM avg_rating_by_decade
+)
+SELECT
+    tm.release_decade,
+    tm.title AS top_movie,
+    tm.rating AS top_movie_rating,
+    gmc.genre,
+    gmc.movie_count,
+    rt.release_decade AS rating_decade,
+    rt.avg_rating,
+    rt.prev_avg_rating,
+    rt.change_in_avg_rating
+FROM top_movies_by_decade tm
+JOIN genre_movie_count gmc ON tm.release_decade = (SELECT release_decade FROM titles WHERE genre = gmc.genre LIMIT 1)
+JOIN rating_change_over_time rt ON tm.release_decade = rt.release_decade
+WHERE tm.rn = 1
+ORDER BY tm.release_decade, gmc.movie_count DESC;
